@@ -1,0 +1,17 @@
+{
+  "appId": "com.mygameroom.treasury",
+  "appName": "我的小金库",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#667eea"
+    }
+  }
+}
+
