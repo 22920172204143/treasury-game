@@ -16,6 +16,11 @@ const platform = new WechatGamePlatform(canvas)
 const THREE = require('./js/libs/three-platformize.min.js')
 if (THREE.PLATFORM && THREE.PLATFORM.set) THREE.PLATFORM.set(platform)
 
+// ========== 0. 资源清单与资源管理 ==========
+const assets = require('./js/config/assets.js')
+const { AssetManager } = require('./js/assetManager.js')
+const assetManager = new AssetManager({ THREE, wx, assets })
+
 const gl = canvas.getContext('webgl')
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0xf0e6d2)
@@ -347,53 +352,8 @@ const depositArea = {
   maxZ: 0
 }
 
-function createWoodPlankTexture() {
-  // 纯代码生成木板条纹，避免引入外部资源
-  const c = wx.createCanvas()
-  c.width = 256
-  c.height = 256
-  const ctx = c.getContext('2d')
-
-  // 底色
-  ctx.fillStyle = '#b98a5c'
-  ctx.fillRect(0, 0, c.width, c.height)
-
-  // 木板条
-  const plankCount = 8
-  const plankW = c.width / plankCount
-  for (let i = 0; i < plankCount; i++) {
-    const x = Math.floor(i * plankW)
-    const w = Math.ceil(plankW)
-    const light = i % 2 === 0
-    ctx.fillStyle = light ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)'
-    ctx.fillRect(x, 0, w, c.height)
-
-    // 木板缝
-    ctx.fillStyle = 'rgba(40,25,15,0.35)'
-    ctx.fillRect(x, 0, 2, c.height)
-
-    // 少量木纹线条
-    ctx.strokeStyle = light ? 'rgba(70,40,20,0.12)' : 'rgba(70,40,20,0.18)'
-    ctx.lineWidth = 1
-    for (let k = 0; k < 3; k++) {
-      ctx.beginPath()
-      const y = Math.floor((k + 1) * (c.height / 4) + (Math.random() - 0.5) * 10)
-      ctx.moveTo(x + 6, y)
-      ctx.bezierCurveTo(x + w * 0.3, y - 6, x + w * 0.7, y + 6, x + w - 6, y)
-      ctx.stroke()
-    }
-  }
-
-  const tex = THREE.CanvasTexture ? new THREE.CanvasTexture(c) : new THREE.Texture(c)
-  tex.needsUpdate = true
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(3, 2)
-  return tex
-}
-
 // 上半部分铺木地板（覆盖后半区，避免与原地板 z-fighting）
-const woodTexture = createWoodPlankTexture()
+const woodTexture = assetManager.getTextureSync('floors', assets.scene.floor)
 const woodFloor = new THREE.Mesh(
   new THREE.PlaneGeometry(20, 10),
   new THREE.MeshStandardMaterial({ map: woodTexture, roughness: 0.9, metalness: 0.0 })
