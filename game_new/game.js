@@ -338,50 +338,197 @@ scene.add(character)
 
 console.log('✅ 角色创建完成（带四肢）')
 
-// ========== 5. 创建现金盒子 ==========
-const cashBoxGroup = new THREE.Group()
-
-// 盒子
-const boxGeometry = new THREE.BoxGeometry(2, 1.5, 1.5)
-const boxMaterial = new THREE.MeshStandardMaterial({ 
-  color: 0x8B4513,
-  transparent: true,
-  opacity: 0.3
-})
-const cashBox = new THREE.Mesh(boxGeometry, boxMaterial)
-cashBox.castShadow = true
-cashBoxGroup.add(cashBox)
-
-// 盒子边框
-const edgesGeometry = new THREE.EdgesGeometry(boxGeometry)
-const edgesMaterial = new THREE.LineBasicMaterial({ color: 0x654321 })
-const edges = new THREE.LineSegments(edgesGeometry, edgesMaterial)
-cashBoxGroup.add(edges)
-
-cashBoxGroup.position.set(5, 0.75, -5)
-scene.add(cashBoxGroup)
-
-// 现金堆
-const cashBills = []
-function addCashToCashBox(amount) {
-  const billGeometry = new THREE.BoxGeometry(0.8, 0.05, 0.4)
-  const billMaterial = new THREE.MeshStandardMaterial({ color: 0x90EE90 })
-  const bill = new THREE.Mesh(billGeometry, billMaterial)
-  
-  const index = cashBills.length
-  bill.position.set(
-    5 + (Math.random() - 0.5) * 0.5,
-    0.3 + index * 0.06,
-    -5 + (Math.random() - 0.5) * 0.5
-  )
-  bill.rotation.y = Math.random() * Math.PI / 4
-  bill.castShadow = true
-  
-  cashBills.push(bill)
-  scene.add(bill)
+// ========== 5. 存钱区域 + 现金可视化 ==========
+// 存钱区域占房间一半（画面上半部分：更远处的半区）
+const depositArea = {
+  minX: -10,
+  maxX: 10,
+  minZ: -10,
+  maxZ: 0
 }
 
-console.log('✅ 现金盒子创建完成')
+function createWoodPlankTexture() {
+  // 纯代码生成木板条纹，避免引入外部资源
+  const c = wx.createCanvas()
+  c.width = 256
+  c.height = 256
+  const ctx = c.getContext('2d')
+
+  // 底色
+  ctx.fillStyle = '#b98a5c'
+  ctx.fillRect(0, 0, c.width, c.height)
+
+  // 木板条
+  const plankCount = 8
+  const plankW = c.width / plankCount
+  for (let i = 0; i < plankCount; i++) {
+    const x = Math.floor(i * plankW)
+    const w = Math.ceil(plankW)
+    const light = i % 2 === 0
+    ctx.fillStyle = light ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)'
+    ctx.fillRect(x, 0, w, c.height)
+
+    // 木板缝
+    ctx.fillStyle = 'rgba(40,25,15,0.35)'
+    ctx.fillRect(x, 0, 2, c.height)
+
+    // 少量木纹线条
+    ctx.strokeStyle = light ? 'rgba(70,40,20,0.12)' : 'rgba(70,40,20,0.18)'
+    ctx.lineWidth = 1
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath()
+      const y = Math.floor((k + 1) * (c.height / 4) + (Math.random() - 0.5) * 10)
+      ctx.moveTo(x + 6, y)
+      ctx.bezierCurveTo(x + w * 0.3, y - 6, x + w * 0.7, y + 6, x + w - 6, y)
+      ctx.stroke()
+    }
+  }
+
+  const tex = THREE.CanvasTexture ? new THREE.CanvasTexture(c) : new THREE.Texture(c)
+  tex.needsUpdate = true
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(3, 2)
+  return tex
+}
+
+// 上半部分铺木地板（覆盖后半区，避免与原地板 z-fighting）
+const woodTexture = createWoodPlankTexture()
+const woodFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 10),
+  new THREE.MeshStandardMaterial({ map: woodTexture, roughness: 0.9, metalness: 0.0 })
+)
+woodFloor.rotation.x = -Math.PI / 2
+woodFloor.position.set(0, 0.01, -5)
+woodFloor.receiveShadow = true
+scene.add(woodFloor)
+
+// 存钱展示台（用于摆放 100 元纸币与 1 万元钱捆/百万量级钱捆）
+const cashDisplayGroup = new THREE.Group()
+cashDisplayGroup.position.set(0, 1.0, -6.5)
+scene.add(cashDisplayGroup)
+
+// 单一透明展示箱（所有现金都放在同一个箱子里）
+const displayBoxGeometry = new THREE.BoxGeometry(9.0, 2.0, 6.0)
+const displayBoxMaterial = new THREE.MeshStandardMaterial({
+  color: 0x8b5a2b,
+  transparent: true,
+  opacity: 0.18
+})
+const displayBox = new THREE.Mesh(displayBoxGeometry, displayBoxMaterial)
+displayBox.castShadow = true
+cashDisplayGroup.add(displayBox)
+const displayEdges = new THREE.LineSegments(
+  new THREE.EdgesGeometry(displayBoxGeometry),
+  new THREE.LineBasicMaterial({ color: 0x5d3a1a })
+)
+cashDisplayGroup.add(displayEdges)
+
+// 现金可视化容器
+const cashVisualGroup = new THREE.Group()
+cashDisplayGroup.add(cashVisualGroup)
+
+function clearGroup(group) {
+  for (let i = group.children.length - 1; i >= 0; i--) {
+    const child = group.children[i]
+    group.remove(child)
+  }
+}
+
+const redBillMaterial = new THREE.MeshStandardMaterial({ color: 0xd32f2f, roughness: 0.65, metalness: 0.0 })
+const redBundleMaterial = new THREE.MeshStandardMaterial({ color: 0xc62828, roughness: 0.65, metalness: 0.0 })
+const bundleBandMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.7, metalness: 0.0 })
+
+function createRedBill() {
+  // 每 100 元：一张红色纸币
+  const bill = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.03, 0.32), redBillMaterial)
+  bill.castShadow = true
+  return bill
+}
+
+function createRedBundle() {
+  // 每 1 万元：一捆红色的钱（带白色绑带）
+  const g = new THREE.Group()
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, 0.34), redBundleMaterial)
+  pack.castShadow = true
+  g.add(pack)
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.165, 0.36), bundleBandMaterial)
+  band.position.x = 0
+  band.castShadow = true
+  g.add(band)
+  return g
+}
+
+// 百元纸币与万元捆的摆放区域（在展示箱内部）
+function randomInRange(min, max) {
+  return min + Math.random() * (max - min)
+}
+
+function updateMoneyVisualization() {
+  clearGroup(cashVisualGroup)
+
+  const safeTotal = Math.max(0, totalMoney)
+  const bundleTotal = Math.floor(safeTotal / 10000) // 以“1万/捆”为单位
+  const billCount = Math.floor((safeTotal % 10000) / 100) // 以“100/张”为单位（0~99）
+
+  // 1) 钱捆：10x10 网格，捆与捆之间留明显间隙（数量对比更直观）
+  const cols = 10
+  const rows = 10
+  const xStep = 0.78
+  const zStep = 0.52
+  const baseX = -((cols - 1) * xStep) / 2
+  const baseZ = -((rows - 1) * zStep) / 2
+  const baseY = -0.75
+  const layerStepY = 0.20
+
+  const maxBundles = 200
+  const showBundles = Math.min(bundleTotal, maxBundles)
+  for (let i = 0; i < showBundles; i++) {
+    const layer = Math.floor(i / (cols * rows))
+    const idx = i % (cols * rows)
+    const r = Math.floor(idx / cols)
+    const c = idx % cols
+
+    const bundle = createRedBundle()
+    bundle.position.set(baseX + c * xStep, baseY + layer * layerStepY, baseZ + r * zStep)
+    bundle.rotation.y = Math.PI / 2
+    cashVisualGroup.add(bundle)
+  }
+
+  // 2) 红色纸币：单独堆在箱子前侧角落，叠放整齐且能看到“多/少”
+  const maxBills = 99
+  const showBills = Math.min(billCount, maxBills)
+  const billCols = 6
+  const billRows = 4
+  const billStacksPerLayer = billCols * billRows
+  const billXStep = 0.55
+  const billZStep = 0.45
+  const billBaseX = 2.4
+  const billBaseZ = 1.3
+
+  for (let i = 0; i < showBills; i++) {
+    const layer = Math.floor(i / billStacksPerLayer)
+    const idx = i % billStacksPerLayer
+    const r = Math.floor(idx / billCols)
+    const c = idx % billCols
+    const bill = createRedBill()
+    bill.position.set(
+      billBaseX + c * billXStep,
+      -0.85 + layer * 0.05,
+      billBaseZ - r * billZStep
+    )
+    bill.rotation.y = Math.PI / 2
+    cashVisualGroup.add(bill)
+  }
+}
+
+function isInDepositArea() {
+  const x = character.position.x
+  const z = character.position.z
+  return x >= depositArea.minX && x <= depositArea.maxX && z >= depositArea.minZ && z <= depositArea.maxZ
+}
+
+console.log('✅ 存钱区域创建完成')
 
 // ========== 6. 游戏数据管理 ==========
 let totalMoney = wx.getStorageSync('totalMoney') || 0
@@ -390,7 +537,6 @@ let records = wx.getStorageSync('records') || []
 function saveMoney(amount, type, note) {
   if (type === 'income') {
     totalMoney += amount
-    addCashToCashBox(amount)
   } else {
     totalMoney -= amount
   }
@@ -404,15 +550,15 @@ function saveMoney(amount, type, note) {
   
   wx.setStorageSync('totalMoney', totalMoney)
   wx.setStorageSync('records', records)
+
+  // 刷新现金可视化
+  updateMoneyVisualization()
   
   console.log(`💰 ${type === 'income' ? '收入' : '支出'}: ${amount}元, 余额: ${totalMoney}元`)
 }
 
 // 初始化现金显示
-const initialBills = Math.min(Math.floor(totalMoney / 100), 50)
-for (let i = 0; i < initialBills; i++) {
-  addCashToCashBox(100)
-}
+updateMoneyVisualization()
 
 console.log(`💰 当前余额: ${totalMoney}元`)
 
@@ -518,8 +664,8 @@ wx.onTouchEnd((e) => {
     const distance = Math.sqrt(dx * dx + dy * dy)
     
     if (distance < saveButtonPosition.radius) {
-      // 点击了存款按钮
-      showMoneyMenu()
+      // 点击了存钱按钮
+      showIncomeDialog()
     }
   }
   
@@ -616,9 +762,9 @@ function drawJoystick() {
   uiCtx.fillText('🔍 双指缩放', 15, 60)
   uiCtx.fillText('🔄 右侧旋转', 15, 80)
   
-  // 靠近箱子时显示存款按钮
-  const nearBox = isNearCashBox()
-  if (nearBox) {
+  // 进入存钱区域时显示存钱按钮
+  const inDepositArea = isInDepositArea()
+  if (inDepositArea) {
     const btnX = screenWidth - 100
     const btnY = screenHeight - 100
     const btnRadius = 40
@@ -638,7 +784,7 @@ function drawJoystick() {
     uiCtx.textAlign = 'center'
     uiCtx.fillText('💰', btnX, btnY - 5)
     uiCtx.font = '12px Arial'
-    uiCtx.fillText('存取款', btnX, btnY + 15)
+    uiCtx.fillText('存钱', btnX, btnY + 15)
     
     // 保存按钮位置供点击检测
     saveButtonPosition = { x: btnX, y: btnY, radius: btnRadius }
@@ -661,14 +807,8 @@ let fps = 0
 let walkCycle = 0
 let isWalking = false
 
-// 检测是否靠近箱子
-function isNearCashBox() {
-  const distance = Math.sqrt(
-    Math.pow(character.position.x - 5, 2) + 
-    Math.pow(character.position.z + 5, 2)
-  )
-  return distance < 3
-}
+// 检测是否进入存钱区域（在“上半部分木地板” Remember: z <= 0）
+// 具体判断函数在存钱区域初始化处：isInDepositArea()
 
 function animate() {
   requestAnimationFrame(animate)
@@ -840,10 +980,10 @@ console.log('🎉 游戏加载完成！')
 console.log('�️ 左下角圆圈：拖动移动角色')
 console.log('🔄 右侧滑动：旋转相机视角')
 console.log('🔍 双指捏合：缩放视距')
-console.log('💰 走到箱子附近点击绿色按钮存取款')
+console.log('💰 进入木地板区域点击绿色按钮存钱')
 
 wx.showToast({
-  title: '靠近箱子存取款',
+  title: '进入木地板区域可存钱',
   icon: 'none',
   duration: 3000
 })
